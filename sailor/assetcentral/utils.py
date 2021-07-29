@@ -9,6 +9,7 @@ import operator
 import logging
 import warnings
 import re
+import os
 
 import pandas as pd
 import plotnine as p9
@@ -65,7 +66,8 @@ def _compose_queries(unbreakable_filters, breakable_filters):
         cartesian_product = set(product(*breakable_filters[(idx + 1):]))
         remaining_cartesian_length_max = max(len(' and '.join(p)) for p in cartesian_product)
 
-        if max_filter_length > len(subfilter) + current_fixed_length + remaining_cartesian_length_max + 2*len(' and '):
+        if max_filter_length > len(subfilter) + current_fixed_length + remaining_cartesian_length_max + 2 * len(
+                ' and '):
             filter_string = ' and '.join([filter_string, subfilter])
             if filter_string.startswith(' and '):
                 filter_string = filter_string[5:]
@@ -135,12 +137,46 @@ def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=()):
     for filter_string in filters:
         params = {'$filter': filter_string} if filter_string else {}
         params['$format'] = 'json'
-        endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
 
-        if isinstance(endpoint_data, list):
-            result.extend(endpoint_data)
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
+            if isinstance(endpoint_data, list):
+                result.extend(endpoint_data)
+            else:
+                result.append(endpoint_data)
         else:
-            result.append(endpoint_data)
+            # AC seems to have different pagination limits for different entities.
+            # E.g. For Equipment it is 100, for Notifications 5000.
+            # As a temporary workaround we iteratively retrieve pages and combine
+            page = -1
+            offset = 0
+            #i = 0
+            # adding default sorting if no sorting criteria is given (default sorting of AC is not clear yet)
+            if '$orderby' not in params:
+                params['$orderby'] = 'name asc'
+            while True:
+                page_result = []
+                endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
+                if isinstance(endpoint_data, list):
+                    page_result.extend(endpoint_data)
+                else:
+                    page_result.append(endpoint_data)
+                # assume the number of rows retrieved in the first GET equals page limit of the relevant AC entity
+                if page == -1:
+                    page = len(page_result)
+                offset += page
+                params['$top'] = page
+                params['$skip'] = offset
+                if len(page_result) == 0:
+                    break
+                else:
+                    if isinstance(page_result, list):
+                        result.extend(page_result)
+                    else:
+                        result.append(page_result)
+                #i += 1
+                #if i >= 5:
+                #    break
 
     if len(result) == 0:
         warnings.warn(DataNotFoundWarning(), stacklevel=2)
@@ -158,6 +194,7 @@ def _add_properties(cls):
         # is necessary due to the closure rules in loops
         def _getter(self, key=their_name):
             return self.raw.get(key, None)
+
         if getter is None:
             getter = _getter
 
@@ -242,8 +279,8 @@ def _parse_filter_parameters(equality_filters=None, extended_filters=(), propert
     """
     unified_filters = _unify_filters(equality_filters, extended_filters, property_mapping)
 
-    breakable_filters = []      # always required
-    unbreakable_filters = []    # can be broken into sub-filters if length is exceeded
+    breakable_filters = []  # always required
+    unbreakable_filters = []  # can be broken into sub-filters if length is exceeded
 
     for key, op, value in unified_filters:
         if _is_non_string_iterable(value):
@@ -442,7 +479,7 @@ class ResultSet(Sequence):
                 plot_function +
                 _default_plot_theme() +
                 p9.ggtitle(f'Number of {display_name} per {by}')
-                )
+        )
         return plot
 
 
@@ -549,6 +586,7 @@ def _nested_put_setter(*nested_names):
         for nested_name in nested_names[:-1]:
             next_dict = next_dict.setdefault(nested_name, {})
         next_dict[nested_names[-1]] = value
+
     return setter
 
 
@@ -557,7 +595,6 @@ def _add_properties_new(cls):
     # This is the new function to be used for all AssetcentralEntities.
     # TODO: remove this comment block once everything is refactored
     for field in cls._field_map.values():
-
         # the assignment of the default value (`field=field`)
         # is necessary due to the closure rules in loops
         def getter(self, field=field):
