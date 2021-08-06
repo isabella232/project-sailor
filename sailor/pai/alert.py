@@ -6,7 +6,7 @@ Classes are provided for individual Alert as well as groups of Alerts (AlertSet)
 
 
 from .constants import ALERTS_READ_PATH
-from .utils import PredictiveAssetInsightsEntity, _pai_application_url
+from .utils import PredictiveAssetInsightsEntity, _pai_application_url, _check_top_entries
 from ..assetcentral.utils import _fetch_data, _add_properties, _parse_filter_parameters, ResultSet
 from ..utils.timestamps import _odata_to_timestamp_parser
 
@@ -120,14 +120,44 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
 
         find_equipment(severity_code=[10, 1])
     """
+# extract query parameters from filters 
+    query_params = {}
+    for key, value in list(kwargs.items()):
+        if key in ['top','skip','orderby']:
+            p = '$' + key
+            query_params[p] = kwargs[key]
+            del kwargs[key]
+            
     unbreakable_filters, breakable_filters = \
         _parse_filter_parameters(kwargs, extended_filters, Alert._get_legacy_mapping())
 
-    endpoint_url = _pai_application_url() + ALERTS_READ_PATH
+    endpoint_url = _pai_application_url() + ALERTS_READ_PATH 
+
+    
     objects = []
-    object_list = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, 'predictive_asset_insights')
+    object_list = []
+    while True:
+        object_list_ = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
+        object_list = object_list + object_list_
+        
+        found_objects = len(object_list_[0]['d']['results'])
+        
+        if found_objects == 0:
+            break
+            
+        top_objects = 0
+        if '$top' in query_params:
+            top_objects = query_params['$top']
+        else: break
+        
+        if found_objects < top_objects:
+            p = _check_top_entries(query_params, found_objects)
+            query_params.update(p)
+        else: break    
+    
     for odata_result in object_list:
         for element in odata_result['d']['results']:
             objects.append(element)
+
     return AlertSet([Alert(obj) for obj in objects],
                     {'filters': kwargs, 'extended_filters': extended_filters})

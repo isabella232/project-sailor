@@ -123,7 +123,7 @@ def _compose_queries(unbreakable_filters, breakable_filters):
     return filters
 
 
-def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), client_name='asset_central'):
+def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), query_params = (), client_name='asset_central'):
     """Retrieve data from the AssetCentral service."""
     filters = _compose_queries(unbreakable_filters, breakable_filters)
     oauth_client = get_oauth_client(client_name)
@@ -135,6 +135,10 @@ def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), clie
     for filter_string in filters:
         params = {'$filter': filter_string} if filter_string else {}
         params['$format'] = 'json'
+        
+        if len(query_params) > 0:
+            params = {**params, **query_params}
+            
         endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
 
         if isinstance(endpoint_data, list):
