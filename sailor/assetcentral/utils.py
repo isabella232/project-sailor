@@ -135,10 +135,10 @@ def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), quer
     for filter_string in filters:
         params = {'$filter': filter_string} if filter_string else {}
         params['$format'] = 'json'
-        
+
         if len(query_params) > 0:
             params = {**params, **query_params}
-            
+
         endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
 
         if isinstance(endpoint_data, list):
@@ -151,6 +151,23 @@ def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), quer
 
     return result
 
+def _fetch_count(endpoint_url_count, unbreakable_filters=(), breakable_filters=(), client_name='predictive_asset_insights'):
+        """Retrieve number of readings with filters from the predictive asset insights services."""
+        filters = _compose_queries(unbreakable_filters, breakable_filters)
+        oauth_client = get_oauth_client(client_name)
+
+        if not filters:
+            filters = ['']
+
+        for filter_string in filters:
+            params = {'$filter': filter_string} if filter_string else {}
+
+            endpoint_data = oauth_client.request('GET', endpoint_url_count, params=params)
+
+            if isinstance(endpoint_data, (bytes, bytearray)):
+                counts = int(endpoint_data.decode())
+            print('total_hits', counts)
+            return(counts)
 
 def _add_properties(cls):
     """Add AssetCentral properties to a class based on the property mapping defined in the class."""

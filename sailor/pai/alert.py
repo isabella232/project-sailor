@@ -6,9 +6,9 @@ Classes are provided for individual Alert as well as groups of Alerts (AlertSet)
 
 
 from .constants import ALERTS_READ_PATH
-from .utils import PredictiveAssetInsightsEntity, _pai_application_url, _check_top_entries
+from .utils import PredictiveAssetInsightsEntity, _pai_application_url
 from ..assetcentral.utils import (_fetch_data, _add_properties_new, _parse_filter_parameters,
-                                  ResultSet, _AssetcentralField)
+                                  ResultSet, _AssetcentralField, _fetch_count)
 from ..utils.timestamps import _odata_to_timestamp_parser_new
 
 
@@ -81,8 +81,7 @@ class AlertSet(ResultSet):
             'by': 'type',
         },
     }
-
-
+        
 def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     """
     Fetch Alerts from PredictiveAssetInsights (PAI) with the applied filters, return an AlertSet.
@@ -100,50 +99,54 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     --------
     Get all Alerts with the type 'MyAlertType'::
 
-        find_alerts(type='MyAlertType')
+        find_alert(type='MyAlertType')
 
     Get all Error(severity code=10) and Information(severity code=1) alerts::
 
-        find_equipment(severity_code=[10, 1])
+        find_alert(severity_code=[10, 1])
+        
+    Get 400 latest alerts for equipment 'MyEquipment'::
+
+        find_alerts(equipment_name = 'MyEquipment', top = 400, orderby = 'TriggeredOn desc')
     """
-# extract query parameters from filters 
     query_params = {}
     for key, value in list(kwargs.items()):
-        if key in ['top','skip','orderby']:
-            p = '$' + key
-            query_params[p] = kwargs[key]
-            del kwargs[key]
-            
+            if key in ['top','skip','orderby']:
+                p = '$' + key
+                query_params[p] = kwargs[key]
+                del kwargs[key]
+
     unbreakable_filters, breakable_filters = \
-        _parse_filter_parameters(kwargs, extended_filters, Alert._get_legacy_mapping())
+           _parse_filter_parameters(kwargs, extended_filters, Alert._get_legacy_mapping())
 
-    endpoint_url = _pai_application_url() + ALERTS_READ_PATH 
+    endpoint_url = _pai_application_url() + ALERTS_READ_PATH
+    count_endpoint_url = _pai_application_url() + ALERTS_READ_PATH + '/$count'
 
-    
+    count = _fetch_count(count_endpoint_url, unbreakable_filters, breakable_filters, 'predictive_asset_insights')
+
+    if '$top'in query_params:
+        count = query_params['$top']
+
+    if '$orderby'not in query_params:
+        query_params['$orderby'] = 'AlertId'
+
     objects = []
     object_list = []
+    skip = 0
     while True:
-        object_list_ = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
-        object_list = object_list + object_list_
-        
-        found_objects = len(object_list_[0]['d']['results'])
-        
-        if found_objects == 0:
-            break
-            
-        top_objects = 0
-        if '$top' in query_params:
-            top_objects = query_params['$top']
-        else: break
-        
-        if found_objects < top_objects:
-            p = _check_top_entries(query_params, found_objects)
+        object_list = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
+
+        for odata_result in object_list:
+            for element in odata_result['d']['results']:
+                objects.append(element)
+
+        skip = len(object_list[0]['d']['results']) + skip
+
+        p = {}
+        if skip < count:
+            p['$skip'] = skip
             query_params.update(p)
-        else: break    
-    
-    for odata_result in object_list:
-        for element in odata_result['d']['results']:
-            objects.append(element)
+        else: break
 
     return AlertSet([Alert(obj) for obj in objects],
                     {'filters': kwargs, 'extended_filters': extended_filters})
