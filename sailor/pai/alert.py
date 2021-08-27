@@ -6,8 +6,8 @@ Classes are provided for individual Alert as well as groups of Alerts (AlertSet)
 
 
 from .constants import ALERTS_READ_PATH
-from .utils import PredictiveAssetInsightsEntity, _pai_application_url
-from ..assetcentral.utils import (_fetch_data, _add_properties_new, _parse_filter_parameters,
+from .utils import PredictiveAssetInsightsEntity, _pai_application_url, _fetch_data
+from ..assetcentral.utils import (_add_properties_new, _parse_filter_parameters,
                                   ResultSet, _AssetcentralField, _fetch_count)
 from ..utils.timestamps import _odata_to_timestamp_parser_new
 
@@ -119,21 +119,11 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
     unbreakable_filters, breakable_filters = \
            _parse_filter_parameters(kwargs, extended_filters, Alert._get_legacy_mapping())
 
+    count_endpoint_url = _pai_application_url() + ALERTS_READ_PATH + '/$count'
     endpoint_url = _pai_application_url() + ALERTS_READ_PATH
 
-    if '$top'in query_params:
-        count = query_params['$top']
-
-    if '$orderby'not in query_params:
-        query_params['$orderby'] = 'AlertId'
-
     objects = []
-    object_list = []
-    object_list = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
-
-    for odata_result in object_list:
-        for element in odata_result['d']['results']:
-            objects.append(element)
+    objects = _fetch_data(endpoint_url, count_endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
 
     return AlertSet([Alert(obj) for obj in objects],
                     {'filters': kwargs, 'extended_filters': extended_filters})
