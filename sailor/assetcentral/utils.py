@@ -123,51 +123,81 @@ def _compose_queries(unbreakable_filters, breakable_filters):
     return filters
 
 
-def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), query_params = (), client_name='asset_central'):
+def _fetch_data(endpoint_url, unbreakable_filters=(), breakable_filters=(), query_params = None, client_name='asset_central'):
     """Retrieve data from the AssetCentral service."""
+    filters = _compose_queries(unbreakable_filters, breakable_filters)
+    oauth_client = get_oauth_client(client_name)
+        
+    count_endpoint_url = endpoint_url + '/$count'
+    counts = _fetch_count(count_endpoint_url, unbreakable_filters, breakable_filters, client_name)  
+    
+    if not query_params:
+        query_params= {} 
+        
+    if '$skip'not in query_params:
+        query_params['$skip'] = 0
+        skip = 0 
+    else:
+        skip  = query_params['$skip']
+        
+    if '$top'in query_params:
+        counts  = query_params['$top']
+
+        
+    if not filters:
+        filters = ['']
+
+    result = []
+    while True:
+        for filter_string in filters:
+            params = {'$filter': filter_string} if filter_string else {}
+            params['$format'] = 'json'
+
+            if len(query_params) > 0:
+                params = {**params, **query_params}
+
+            endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
+
+            if isinstance(endpoint_data, list):
+                result.extend(endpoint_data)
+            else:
+                result.append(endpoint_data)
+
+            if client_name == 'predictive_asset_insights':
+                skip = len(result[0]['d']['results']) + skip 
+            else: skip = len(result)
+
+            print(skip, counts)
+        p = {}
+        if skip < counts:
+            p['$skip'] = skip
+            query_params.update(p)
+        else: break
+
+
+        if len(result) == 0:
+            warnings.warn(DataNotFoundWarning(), stacklevel=2)
+
+    return result
+
+def _fetch_count(endpoint_url_count, unbreakable_filters=(), breakable_filters=(), client_name='predictive_asset_insights'):
+    """Retrieve number of readings with filters from the predictive asset insights services."""
     filters = _compose_queries(unbreakable_filters, breakable_filters)
     oauth_client = get_oauth_client(client_name)
 
     if not filters:
         filters = ['']
 
-    result = []
     for filter_string in filters:
         params = {'$filter': filter_string} if filter_string else {}
-        params['$format'] = 'json'
 
-        if len(query_params) > 0:
-            params = {**params, **query_params}
+        endpoint_data = oauth_client.request('GET', endpoint_url_count, params=params)
 
-        endpoint_data = oauth_client.request('GET', endpoint_url, params=params)
-
-        if isinstance(endpoint_data, list):
-            result.extend(endpoint_data)
-        else:
-            result.append(endpoint_data)
-
-    if len(result) == 0:
-        warnings.warn(DataNotFoundWarning(), stacklevel=2)
-
-    return result
-
-def _fetch_count(endpoint_url_count, unbreakable_filters=(), breakable_filters=(), client_name='predictive_asset_insights'):
-        """Retrieve number of readings with filters from the predictive asset insights services."""
-        filters = _compose_queries(unbreakable_filters, breakable_filters)
-        oauth_client = get_oauth_client(client_name)
-
-        if not filters:
-            filters = ['']
-
-        for filter_string in filters:
-            params = {'$filter': filter_string} if filter_string else {}
-
-            endpoint_data = oauth_client.request('GET', endpoint_url_count, params=params)
-
-            if isinstance(endpoint_data, (bytes, bytearray)):
-                counts = int(endpoint_data.decode())
-            print('total_hits', counts)
-            return(counts)
+        if isinstance(endpoint_data, (bytes, bytearray)):
+            counts = int(endpoint_data.decode())
+        else: counts = endpoint_data
+        print('total_hits', counts)
+    return(counts)
 
 def _add_properties(cls):
     """Add AssetCentral properties to a class based on the property mapping defined in the class."""

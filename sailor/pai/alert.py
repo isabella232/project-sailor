@@ -120,9 +120,6 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
            _parse_filter_parameters(kwargs, extended_filters, Alert._get_legacy_mapping())
 
     endpoint_url = _pai_application_url() + ALERTS_READ_PATH
-    count_endpoint_url = _pai_application_url() + ALERTS_READ_PATH + '/$count'
-
-    count = _fetch_count(count_endpoint_url, unbreakable_filters, breakable_filters, 'predictive_asset_insights')
 
     if '$top'in query_params:
         count = query_params['$top']
@@ -132,21 +129,11 @@ def find_alerts(*, extended_filters=(), **kwargs) -> AlertSet:
 
     objects = []
     object_list = []
-    skip = 0
-    while True:
-        object_list = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
+    object_list = _fetch_data(endpoint_url, unbreakable_filters, breakable_filters, query_params, 'predictive_asset_insights')
 
-        for odata_result in object_list:
-            for element in odata_result['d']['results']:
-                objects.append(element)
-
-        skip = len(object_list[0]['d']['results']) + skip
-
-        p = {}
-        if skip < count:
-            p['$skip'] = skip
-            query_params.update(p)
-        else: break
+    for odata_result in object_list:
+        for element in odata_result['d']['results']:
+            objects.append(element)
 
     return AlertSet([Alert(obj) for obj in objects],
                     {'filters': kwargs, 'extended_filters': extended_filters})
